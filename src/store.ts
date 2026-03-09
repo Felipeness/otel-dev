@@ -29,6 +29,18 @@ export function getTraces(): Trace[] {
   return groupSpansByTrace([...spans]);
 }
 
+export function getFilteredTraces(query: string): Trace[] {
+  const traces = getTraces();
+  if (!query) return traces;
+
+  const q = query.toLowerCase();
+  return traces.filter((trace) =>
+    trace.traceId.toLowerCase().includes(q) ||
+    trace.serviceName.toLowerCase().includes(q) ||
+    trace.spans.some((span) => span.name.toLowerCase().includes(q)),
+  );
+}
+
 export function subscribe(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

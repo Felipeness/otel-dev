@@ -2,7 +2,7 @@ import http from 'node:http'
 
 import type { OtlpExportRequest } from './types.js'
 import { parseOtlpRequest } from './types.js'
-import { addSpans, getTraces, subscribe } from './store.js'
+import { addSpans, clear, getFilteredTraces, subscribe } from './store.js'
 import { serveHtml } from './web/handler.js'
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -14,11 +14,18 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+} as const
+
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body)
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(payload),
+    ...CORS_HEADERS,
   })
   res.end(payload)
 }
@@ -28,6 +35,12 @@ async function handler(
   res: http.ServerResponse,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS)
+    res.end()
+    return
+  }
 
   if (url.pathname === '/v1/traces' && req.method === 'POST') {
     try {
@@ -43,19 +56,28 @@ async function handler(
   }
 
   if (url.pathname === '/v1/traces' && req.method === 'GET') {
-    json(res, 200, getTraces())
+    const q = url.searchParams.get('q') ?? ''
+    json(res, 200, getFilteredTraces(q))
+    return
+  }
+
+  if (url.pathname === '/v1/traces' && req.method === 'DELETE') {
+    clear()
+    json(res, 200, {})
     return
   }
 
   if (url.pathname === '/sse' && req.method === 'GET') {
+    const q = url.searchParams.get('q') ?? ''
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      ...CORS_HEADERS,
     })
 
     const send = (): void => {
-      res.write(`data: ${JSON.stringify(getTraces())}\n\n`)
+      res.write(`data: ${JSON.stringify(getFilteredTraces(q))}\n\n`)
     }
 
     send()
@@ -72,7 +94,7 @@ async function handler(
     return
   }
 
-  res.writeHead(404, { 'Content-Type': 'application/json' })
+  res.writeHead(404, { 'Content-Type': 'application/json', ...CORS_HEADERS })
   res.end(JSON.stringify({ error: 'Not found' }))
 }
 

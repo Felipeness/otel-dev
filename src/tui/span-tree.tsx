@@ -1,5 +1,5 @@
-import React from 'react'
-import { Box, Text } from 'ink'
+import React, { useState, useMemo } from 'react'
+import { Box, Text, useInput } from 'ink'
 import { Trace, Span, spanKindLabel } from '../types.js'
 
 type Props = {
@@ -75,9 +75,91 @@ function durationBar(spanMs: number, traceMs: number): string {
   return '\u2588'.repeat(width)
 }
 
+function SpanDetail({ span }: { span: Span }) {
+  const attrEntries = Object.entries(span.attributes)
+  const hasStatus = span.status.message
+  const hasEvents = span.events.length > 0
+  const hasAttrs = attrEntries.length > 0
+
+  if (!hasAttrs && !hasEvents && !hasStatus) {
+    return (
+      <Box marginLeft={2} marginBottom={1}>
+        <Text color="gray" italic>No attributes, events, or status message.</Text>
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" marginLeft={2} marginBottom={1}>
+      {hasStatus && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold color="yellow">Status</Text>
+          <Text color="gray">  message=</Text>
+          <Text color="white">{span.status.message}</Text>
+        </Box>
+      )}
+
+      {hasAttrs && (
+        <Box flexDirection="column" marginBottom={hasEvents ? 1 : 0}>
+          <Text bold color="yellow">Attributes</Text>
+          {attrEntries.map(([key, value]) => (
+            <Box key={key}>
+              <Text color="gray">  {key}</Text>
+              <Text color="white">=</Text>
+              <Text color="cyan">{String(value)}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {hasEvents && (
+        <Box flexDirection="column">
+          <Text bold color="yellow">Events</Text>
+          {span.events.map((event, i) => {
+            const eventAttrs = Object.entries(event.attributes)
+            return (
+              <Box key={`${event.name}-${i}`} flexDirection="column">
+                <Box>
+                  <Text color="gray">  </Text>
+                  <Text color="magenta" bold>{event.name}</Text>
+                </Box>
+                {eventAttrs.map(([key, value]) => (
+                  <Box key={key}>
+                    <Text color="gray">    {key}</Text>
+                    <Text color="white">=</Text>
+                    <Text color="cyan">{String(value)}</Text>
+                  </Box>
+                ))}
+              </Box>
+            )
+          })}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 export function SpanTree({ trace }: Props) {
-  const tree = buildSpanTree(trace.spans)
-  const flat = flattenTree(tree)
+  const [cursor, setCursor] = useState(0)
+  const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null)
+
+  const flat = useMemo(() => {
+    const tree = buildSpanTree(trace.spans)
+    return flattenTree(tree)
+  }, [trace.spans])
+
+  useInput((input, key) => {
+    if (key.upArrow || input === 'k') {
+      setCursor(c => Math.max(0, c - 1))
+    }
+    if (key.downArrow || input === 'j') {
+      setCursor(c => Math.min(flat.length - 1, c + 1))
+    }
+    if (key.return && flat.length > 0) {
+      const currentSpanId = flat[cursor]!.span.spanId
+      setExpandedSpanId(prev => prev === currentSpanId ? null : currentSpanId)
+    }
+  })
 
   return (
     <Box flexDirection="column">
@@ -89,27 +171,33 @@ export function SpanTree({ trace }: Props) {
         <Text color="gray">  {trace.spanCount} spans</Text>
       </Box>
 
-      {flat.map((node) => {
+      {flat.map((node, i) => {
+        const selected = i === cursor
+        const expanded = expandedSpanId === node.span.spanId
         const indent = '  '.repeat(node.depth)
         const kind = spanKindLabel(node.span.kind)
         const color = statusColor(node.span.status.code)
         const bar = durationBar(node.span.durationMs, trace.durationMs)
 
         return (
-          <Box key={node.span.spanId}>
-            <Text>
-              <Text color="gray">{indent}</Text>
-              <Text color={color} bold>{node.span.name}</Text>
-              <Text color="gray"> [{kind}] </Text>
-              <Text color={color}>{bar} </Text>
-              <Text color="cyan">{formatDuration(node.span.durationMs)}</Text>
-              {node.span.serviceName !== trace.serviceName && (
-                <Text color="magenta"> ({node.span.serviceName})</Text>
-              )}
-              {node.span.status.code === 2 && (
-                <Text color="red" bold> ERR</Text>
-              )}
-            </Text>
+          <Box key={node.span.spanId} flexDirection="column">
+            <Box>
+              <Text inverse={selected}>
+                <Text color="gray">{indent}</Text>
+                <Text color={selected ? undefined : color} bold>{node.span.name}</Text>
+                <Text color="gray"> [{kind}] </Text>
+                <Text color={selected ? undefined : color}>{bar} </Text>
+                <Text color="cyan">{formatDuration(node.span.durationMs)}</Text>
+                {node.span.serviceName !== trace.serviceName && (
+                  <Text color="magenta"> ({node.span.serviceName})</Text>
+                )}
+                {node.span.status.code === 2 && (
+                  <Text color="red" bold> ERR</Text>
+                )}
+                {selected && <Text color="gray"> {expanded ? '\u25BC' : '\u25B6'}</Text>}
+              </Text>
+            </Box>
+            {expanded && <SpanDetail span={node.span} />}
           </Box>
         )
       })}

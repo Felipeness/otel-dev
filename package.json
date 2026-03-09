@@ -1,6 +1,6 @@
 {
   "name": "otel-dev",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "See your OpenTelemetry traces locally with one command. TUI + Web UI.",
   "type": "module",
   "bin": {

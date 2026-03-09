@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { Trace } from '../types.js'
 
 type Props = {
   traces: Trace[]
   onSelect: (trace: Trace) => void
+  searchQuery?: string
 }
 
 const SERVICE_COLORS = ['cyan', 'magenta', 'yellow', 'blue', 'green', 'red', 'white'] as const
@@ -33,19 +34,33 @@ function formatAgo(startTimeMs: number): string {
 
 const MAX_VISIBLE = 20
 
-export function TraceList({ traces, onSelect }: Props) {
+export function TraceList({ traces, onSelect, searchQuery }: Props) {
   const [cursor, setCursor] = useState(0)
 
-  useInput((_input, key) => {
-    if (key.upArrow) setCursor(c => Math.max(0, c - 1))
-    if (key.downArrow) setCursor(c => Math.min(traces.length - 1, c + 1))
+  useEffect(() => {
+    if (cursor >= traces.length && traces.length > 0) {
+      setCursor(traces.length - 1)
+    }
+  }, [traces.length, cursor])
+
+  useInput((input, key) => {
+    if (key.upArrow || input === 'k') setCursor(c => Math.max(0, c - 1))
+    if (key.downArrow || input === 'j') setCursor(c => Math.min(traces.length - 1, c + 1))
     if (key.return && traces.length > 0) onSelect(traces[cursor]!)
   })
 
   if (traces.length === 0) {
     return (
-      <Box>
-        <Text color="gray">No traces received yet.</Text>
+      <Box flexDirection="column">
+        {searchQuery && (
+          <Box marginBottom={1}>
+            <Text color="yellow">No traces matching: </Text>
+            <Text color="white" bold>{searchQuery}</Text>
+          </Box>
+        )}
+        <Box>
+          <Text color="gray">{searchQuery ? 'Try a different search term.' : 'No traces received yet.'}</Text>
+        </Box>
       </Box>
     )
   }
@@ -55,6 +70,14 @@ export function TraceList({ traces, onSelect }: Props) {
 
   return (
     <Box flexDirection="column">
+      {searchQuery && (
+        <Box marginBottom={1}>
+          <Text color="yellow">Filter: </Text>
+          <Text color="white" bold>{searchQuery}</Text>
+          <Text color="gray"> ({traces.length} matching)</Text>
+        </Box>
+      )}
+
       <Box>
         <Text bold color="gray">
           {'  SERVICE              OPERATION                    DURATION  SPANS  STATUS  AGO'}
