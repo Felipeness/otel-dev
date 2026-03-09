@@ -9,6 +9,10 @@
 No Jaeger. No Docker. No config.
 Just `npx otel-dev` and start seeing traces.
 
+<p align="center">
+  <img src="docs/screenshots/otel-dev-demo.gif" alt="otel-dev Web UI demo" width="800">
+</p>
+
 ---
 
 ## Quick start
