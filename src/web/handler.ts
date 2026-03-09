@@ -1,0 +1,191 @@
+import type { ServerResponse } from 'node:http'
+
+function getHtmlContent(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>otel-dev</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #21262d; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header h1 span { color: #3fb950; }
+  .status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #f85149; }
+  .status.connected .dot { background: #3fb950; }
+  .container { display: flex; flex: 1; overflow: hidden; }
+  .trace-list { width: 40%; border-right: 1px solid #21262d; overflow-y: auto; }
+  .detail-panel { width: 60%; overflow-y: auto; padding: 16px; }
+  .trace-item { padding: 10px 16px; border-bottom: 1px solid #21262d; cursor: pointer; transition: background 0.1s; }
+  .trace-item:hover { background: #161b22; }
+  .trace-item.selected { background: #1c2333; border-left: 3px solid #3fb950; }
+  .trace-item .service { color: #79c0ff; font-size: 13px; font-weight: 600; }
+  .trace-item .operation { color: #c9d1d9; font-size: 12px; margin-top: 2px; }
+  .trace-item .meta { display: flex; gap: 10px; margin-top: 4px; font-size: 11px; color: #8b949e; }
+  .trace-item .error-badge { background: #f8514926; color: #f85149; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #484f58; font-size: 14px; }
+  .span-row { display: flex; align-items: center; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #21262d10; }
+  .span-indent { flex-shrink: 0; }
+  .span-name { color: #c9d1d9; min-width: 180px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .span-bar-container { flex: 1; height: 16px; position: relative; margin: 0 12px; }
+  .span-bar { position: absolute; height: 100%; border-radius: 2px; min-width: 2px; background: #1f6feb; }
+  .span-bar.error { background: #f85149; }
+  .span-duration { color: #8b949e; font-size: 11px; min-width: 70px; text-align: right; flex-shrink: 0; }
+  .detail-header { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #e6edf3; }
+  .span-kind { color: #8b949e; font-size: 10px; margin-left: 6px; padding: 1px 4px; border: 1px solid #30363d; border-radius: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>otel</span>-dev</h1>
+  <div class="status" id="status">
+    <div class="dot"></div>
+    <span>Disconnected</span>
+  </div>
+</header>
+<div class="container">
+  <div class="trace-list" id="traceList">
+    <div class="empty">Waiting for traces...</div>
+  </div>
+  <div class="detail-panel" id="detailPanel">
+    <div class="empty">Select a trace to view spans</div>
+  </div>
+</div>
+<script>
+(function() {
+  const SPAN_KINDS = ['UNSPECIFIED','INTERNAL','SERVER','CLIENT','PRODUCER','CONSUMER'];
+  let traces = [];
+  let selectedTraceId = null;
+  let sse = null;
+
+  function connectSSE() {
+    sse = new EventSource('/sse');
+    sse.onopen = function() {
+      document.getElementById('status').className = 'status connected';
+      document.getElementById('status').querySelector('span').textContent = 'Connected';
+    };
+    sse.onmessage = function(e) {
+      try {
+        traces = JSON.parse(e.data);
+        renderTraceList();
+        if (selectedTraceId) renderDetail(selectedTraceId);
+      } catch {}
+    };
+    sse.onerror = function() {
+      document.getElementById('status').className = 'status';
+      document.getElementById('status').querySelector('span').textContent = 'Disconnected';
+      sse.close();
+      setTimeout(connectSSE, 2000);
+    };
+  }
+
+  function relativeTime(ms) {
+    var diff = Date.now() - ms;
+    if (diff < 1000) return 'just now';
+    if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    return Math.floor(diff / 3600000) + 'h ago';
+  }
+
+  function formatDuration(ms) {
+    if (ms < 1) return '<1ms';
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    return (ms / 1000).toFixed(2) + 's';
+  }
+
+  function renderTraceList() {
+    var el = document.getElementById('traceList');
+    if (!traces.length) { el.innerHTML = '<div class="empty">Waiting for traces...</div>'; return; }
+    var html = '';
+    for (var i = 0; i < traces.length; i++) {
+      var t = traces[i];
+      var cls = 'trace-item' + (t.traceId === selectedTraceId ? ' selected' : '');
+      html += '<div class="' + cls + '" data-id="' + t.traceId + '">';
+      html += '<div class="service">' + esc(t.serviceName) + '</div>';
+      html += '<div class="operation">' + esc(t.rootSpan.name) + '</div>';
+      html += '<div class="meta">';
+      html += '<span>' + formatDuration(t.durationMs) + '</span>';
+      html += '<span>' + t.spanCount + ' span' + (t.spanCount !== 1 ? 's' : '') + '</span>';
+      html += '<span>' + relativeTime(t.rootSpan.startTimeMs) + '</span>';
+      if (t.hasError) html += '<span class="error-badge">ERROR</span>';
+      html += '</div></div>';
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('.trace-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        selectedTraceId = this.dataset.id;
+        renderTraceList();
+        renderDetail(selectedTraceId);
+      });
+    });
+  }
+
+  function buildTree(spans) {
+    var byId = {};
+    var roots = [];
+    spans.forEach(function(s) { byId[s.spanId] = { span: s, children: [] }; });
+    spans.forEach(function(s) {
+      if (s.parentSpanId && byId[s.parentSpanId]) byId[s.parentSpanId].children.push(byId[s.spanId]);
+      else roots.push(byId[s.spanId]);
+    });
+    return roots;
+  }
+
+  function flattenTree(nodes, depth) {
+    var result = [];
+    nodes.forEach(function(n) {
+      result.push({ span: n.span, depth: depth });
+      result = result.concat(flattenTree(n.children, depth + 1));
+    });
+    return result;
+  }
+
+  function renderDetail(traceId) {
+    var panel = document.getElementById('detailPanel');
+    var trace = traces.find(function(t) { return t.traceId === traceId; });
+    if (!trace) { panel.innerHTML = '<div class="empty">Trace not found</div>'; return; }
+    var tree = buildTree(trace.spans);
+    var flat = flattenTree(tree, 0);
+    var traceStart = trace.rootSpan.startTimeMs;
+    var traceDur = trace.durationMs || 1;
+    var html = '<div class="detail-header">' + esc(trace.rootSpan.name) + ' &mdash; ' + formatDuration(trace.durationMs) + '</div>';
+    for (var i = 0; i < flat.length; i++) {
+      var f = flat[i];
+      var s = f.span;
+      var offset = ((s.startTimeMs - traceStart) / traceDur) * 100;
+      var width = Math.max((s.durationMs / traceDur) * 100, 0.5);
+      var isErr = s.status && s.status.code === 2;
+      html += '<div class="span-row">';
+      html += '<div class="span-indent" style="width:' + (f.depth * 20) + 'px"></div>';
+      html += '<div class="span-name">' + esc(s.name) + '<span class="span-kind">' + SPAN_KINDS[s.kind || 0] + '</span></div>';
+      html += '<div class="span-bar-container"><div class="span-bar' + (isErr ? ' error' : '') + '" style="left:' + offset + '%;width:' + width + '%"></div></div>';
+      html += '<div class="span-duration">' + formatDuration(s.durationMs) + '</div>';
+      html += '</div>';
+    }
+    panel.innerHTML = html;
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  connectSSE();
+})();
+</script>
+</body>
+</html>`
+}
+
+export function serveHtml(res: ServerResponse): void {
+  const html = getHtmlContent()
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(html),
+  })
+  res.end(html)
+}

@@ -1,0 +1,43 @@
+{
+  "name": "otel-dev",
+  "version": "0.1.0",
+  "description": "See your OpenTelemetry traces locally with one command. TUI + Web UI.",
+  "type": "module",
+  "bin": {
+    "otel-dev": "./bin/otel-dev.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "opentelemetry",
+    "otel",
+    "traces",
+    "observability",
+    "tui",
+    "devtools",
+    "tracing"
+  ],
+  "author": "Felipe Coelho",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Felipeness/otel-dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ink": "^5.1.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.7.0"
+  }
+}
